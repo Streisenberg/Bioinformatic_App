@@ -1,2 +1,2 @@
-# Bioinformatic_App
- Turkish Bioinformatics Web Application
+# Bioinformatic_Website
+ Turkish Bioinformatics App
