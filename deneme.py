@@ -26,3 +26,21 @@ from Bio.Align import MultipleSeqAlignment
             #substitution = alignment.substitutions
             #st.text(substitution)
 
+
+
+
+
+
+            aligner = Align.PairwiseAligner()
+            #alignments = aligner.align("GAACT", "GAT")
+            #for a in alignments:
+            #    st.text(a)
+            aligner.mode = 'local'
+            seq1 = "AGAACTC"
+            seq2 = "GAACT"
+            score = aligner.score(seq1, seq2)
+            st.write(score)
+            alignments = aligner.align(seq1,seq2)
+            for a in alignments:
+                st.text(a)
+
