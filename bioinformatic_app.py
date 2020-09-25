@@ -1,8 +1,10 @@
 import streamlit as st
+import sys
+import os
 from Bio.Seq import Seq 
 from Bio import SeqIO
 from Bio.SeqUtils import GC
-#import neatbio.sequtils as utils
+import neatbio.sequtils as utils
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
@@ -13,10 +15,156 @@ from Bio.SeqRecord import SeqRecord
 from Bio.Emboss.Applications import NeedleCommandline
 from Bio import pairwise2, Align
 from Bio.Align import substitution_matrices
+#from PIL import Image
+from chembl_webresource_client.new_client import new_client
+import base64
+from SessionState import SessionState
+#Aşağıdaki libraryler herokuya yüklenmeden önce requirements dosyasına eklenecek
+#Ayrıca Streamlit librarysinin de sürümünü requirements kısmında güncelle
+from rdkit import Chem
+from rdkit.Chem import Descriptors, Lipinski
+import seaborn as sns
+from numpy.random import seed
+from numpy.random import randn
+from scipy.stats import mannwhitneyu
+import json
+import pickle
+import uuid
+import re
+from functions import download_button
+import PyPDF2
 
-print(substitution_matrices.load())
 
 
+st.set_option('deprecation.showPyplotGlobalUse', False)
+
+sns.set(style='ticks')
+
+sys.path.append('/usr/local/lib/python3.7/site-packages/')
+
+st.set_option('deprecation.showfileUploaderEncoding', False)
+
+session_state = SessionState.get(name="", button_sent=False)
+
+
+def mannwhitney(descriptor, verbose=False):
+
+    # seed the random number generator
+    seed(1)
+
+    # actives and inactives
+    selection = [descriptor, 'bioactivity_class']
+    df = df_class[selection]
+    active = df[df.bioactivity_class == 'active']
+    active = active[descriptor]
+
+    selection = [descriptor, 'bioactivity_class']
+    df = df_class[selection]
+    inactive = df[df.bioactivity_class == 'inactive']
+    inactive = inactive[descriptor]
+
+    # compare samples
+    stat, p = mannwhitneyu(active, inactive)
+    #print('Statistics=%.3f, p=%.3f' % (stat, p))
+
+    # interpret
+    alpha = 0.05
+    if p > alpha:
+        interpretation = 'Same distribution (fail to reject H0)'
+    else:
+        interpretation = 'Different distribution (reject H0)'
+    
+    results = pd.DataFrame({'Descriptor':descriptor,
+                            'Statistics':stat,
+                            'p':p,
+                            'alpha':alpha,
+                            'Interpretation':interpretation}, index=[0])
+    filename = 'mannwhitneyu_' + descriptor + '.csv'
+    results.to_csv(filename)
+
+    return results
+
+def pIC50(input):
+    pIC50 = []
+
+    for i in input['standard_value_norm']:
+        molar = i*(10**-9) # Converts nM to M
+        pIC50.append(-np.log10(molar))
+
+    input['pIC50'] = pIC50
+    x = input.drop('standard_value_norm', 1)
+        
+    return x
+
+def norm_value(input):
+    norm = []
+    for i in input['standard_value']:
+        i = float(i)
+        i = int(i)
+        if i > 100000000:
+          i = 100000000
+        norm.append(i)
+
+    input['standard_value_norm'] = norm
+    x = input.drop('standard_value', 1)
+        
+    return x
+
+# Inspired by: https://codeocean.com/explore/capsules?query=tag:data-curation
+def lipinski(smiles, verbose=False):
+
+
+    moldata= []
+    for elem in smiles:
+
+        mol=Chem.MolFromSmiles(elem) 
+        moldata.append(mol)
+
+    baseData= np.arange(1,1)
+    i=0  
+    for mol in moldata:        
+       
+      desc_MolWt = Descriptors.MolWt(mol)
+      desc_MolLogP = Descriptors.MolLogP(mol)
+      desc_NumHDonors = Lipinski.NumHDonors(mol)
+      desc_NumHAcceptors = Lipinski.NumHAcceptors(mol)
+          
+      row = np.array([desc_MolWt,
+                      desc_MolLogP,
+                      desc_NumHDonors,
+                      desc_NumHAcceptors])   
+  
+      if(i==0):
+          baseData=row
+      else:
+          baseData=np.vstack([baseData, row])
+      i=i+1      
+  
+    columnNames=["MW","LogP","NumHDonors","NumHAcceptors"]   
+    descriptors = pd.DataFrame(data=baseData,columns=columnNames)
+    
+    return descriptors
+
+    #You can check it out rdkit library to further reading for these functions
+
+def get_table_download_link(df):
+    """Generates a link allowing the data in a given panda dataframe to be downloaded
+    in:  dataframe
+    out: href string
+    """
+    pdf = PyPDF2.PdfFileReader(df)
+    b64 = base64.b64encode(pdf.encode()).decode()  # some strings <-> bytes conversions necessary here
+    href = f'<a href="data:file/pdf;base64,{b64}" download="CSV_Dosyası.csv">CSV Dosyasını Bilgisayarına Yükle</a>'
+
+    return href
+
+def get_binary_file_downloader_html(bin_file, file_label='File'):
+
+    with open(bin_file, 'rb') as f:
+        data = f.read()
+    bin_str = base64.b64encode(data).decode()
+    href = f'<a href="data:application/octet-stream;base64,{bin_str}" download="{os.path.basename(bin_file)}">Download {file_label}</a>'
+    return href
 
 def gc_content(seq):
     result = GC(seq)
@@ -52,8 +200,11 @@ def main():
         st.write("lorem ipsum dolor.")
     elif select_box == "DNA Sekansı":
         st.subheader("DNA Sekans Analizi")
-        seq_dosya = st.sidebar.file_uploader("Lütfen FASTA yapılı dosyanızı girin", type=["FASTA","fa"])
 
+        st.warning("Lütfen DNA Sekansınızı sol taraftaki barda bulunan dosya yükleme kısmından içeri aktarınız.")
+
+        seq_dosya = st.sidebar.file_uploader("Lütfen FASTA yapılı dosyanızı girin", type=["FASTA","fa"])
+        
         if seq_dosya is not None:
             dna = SeqIO.read(seq_dosya, "fasta")
             st.write(dna)
@@ -156,6 +307,8 @@ def main():
                     st.text(utils.get_acid_name(aa3))              
 
     elif select_box == "Çoklu Sekans Hizalama":
+
+        st.warning("Lütfen karşılaştırma yapacağınız sekansları sol taraftaki barda bulunan dosya yükleme kısmından içeri aktarınız.")
         seq1 = st.sidebar.file_uploader("1.FASTA dosyanızı giriniz", type=["fasta", "fa"])
 
         seq2 = st.sidebar.file_uploader("2.FASTA dosyanızı giriniz", type=["fasta", "fa"])
@@ -366,21 +519,288 @@ def main():
         except:
             st.text("")
 
+    elif select_box == "Hedef Protein Analizi":
+        try:
+            st.text("")
+            arama = st.sidebar.text_input("Aramak İstediğiniz Proteini Yazınız.", "coronavirus")
+            target = new_client.target
+            target_query = target.search(arama) #Your target protein name that you want to search
+            targets = pd.DataFrame.from_dict(target_query)
+            st.write("**Chembl Verisi**:")
+            st.write(targets)
+            st.text("")
+            
+            hedef_protein = st.number_input("İleri araştırma yapmak istediğiniz Single Proteinin solunda yazan numarayı girin.", min_value=0 ,value=4, format="%d")
+            selected_target = targets.target_chembl_id[hedef_protein]
+            st.text("")
+            st.write("Seçtiğiniz proteinin **ChEMBL ID**'si: {0}".format(selected_target))
+            activity = new_client.activity
+            res = activity.filter(target_chembl_id=selected_target).filter(standard_type="IC50")
+            df = pd.DataFrame.from_dict(res)
+            
+            st.text("")
+        except:
+            st.warning("Girilen Değer Geçersiz")
+        
+
+        if hedef_protein is not None:
             
 
-                   
+            if st.checkbox("Seçtiğiniz Proteinin IC50 değerlerine göre elde edilen verisini görüntülemek için tıklayınız."):
+                if df.empty:
+                    st.warning("Lütfen bir Single Protein seçiniz!")
+                else:
+                        
+                    st.write(df)
+                    st.text("")
+                
+                    st.markdown(download_button(df, 'IC50_Veri.csv', 'CSV Dosyasını Bilgisayarına Yükle'), unsafe_allow_html=True)
+            
+            
+            st.text("")
+            st.text("")
+            st.markdown("<h3 style='text-align: center; color: red;'>Seçilen Protein için molekül aktivitesini hesaplayan ML programını çalıştırmak isterseniz aşağıda ki butona tıklayınız.</h3>", unsafe_allow_html=True)
+            st.text("")
+            
+            df2 = df[df.standard_value.notna()]
+            bioactivity_class = []
+
+            mol_cid = []
+            canonical_smiles = []
+            standard_value = []
+            for unit in df2.standard_value:
+                if float(unit) >= 10000:
+                    bioactivity_class.append("inactive")
+                elif float(unit) <= 1000:
+                    bioactivity_class.append("active")
+                else:
+                    bioactivity_class.append("intermediate")
+
+            for i in df2.molecule_chembl_id:
+
+                mol_cid.append(i)
+            
+            for i in df2.canonical_smiles:
+
+                canonical_smiles.append(i)
+                
+            for i in df2.standard_value:
+
+                standard_value.append(i)
+                    
+                    
+
+            data_tuples = list(zip(mol_cid, canonical_smiles, standard_value, bioactivity_class))
+            df3 = pd.DataFrame( data_tuples,  columns=['molecule_chembl_id', 'canonical_smiles', 'standard_value','bioactivity_class' ])
+            st.text("")
+            if df.empty:
+                st.warning("Lütfen bir Single Protein seçiniz!")
+            else:
+                if st.checkbox("Moleküler Aktivite Hesapla"):
+                    st.text("")
+                    st.text("")
+                    st.write(df3)
+                    st.text("")
+                    st.markdown(download_button(df3, 'Genel_Veri.csv', 'CSV Dosyasını Bilgisayarına Yükle'), unsafe_allow_html=True)
+
+                    st.text("")
+                    if st.selectbox("Yalnızca Aktif Olanları Göster",("Aktif","")):
+                        active_data = (df3.loc[df3['bioactivity_class'] == "active"])
+                        st.write(active_data)
+                        st.text("")
+                        st.markdown(download_button(active_data, 'Aktif_Veri.csv', 'CSV Dosyasını Bilgisayarına Yükle'), unsafe_allow_html=True)
+
+            
+                st.text("")
+                st.text("")
+                st.markdown("<h3 style='text-align: center; color: red;'>Lipinski Tanımlayıcılarını Hesaplamak için aşağıdaki butona tıklayınız.</h3>", unsafe_allow_html=True)
+                st.text("")
+                
+                button_sent = st.checkbox("Lipinski Tanımlayıcıları")
+                
+                if button_sent:
+                    session_state.button_sent = True
+
+                if session_state.button_sent:
+                    st.subheader("Lipinski Verisi:")
+                    st.write("**MW** = Moleküler Ağırlık")
+                    st.write("**LogP** = Molekül Çözünürlüğü")
+                    st.write("**NumHDonors** = Hidrojen Bağı Vericileri")
+                    st.write("**NumHAcceptors** = Hidrojen Bağı Alıcıları")
+                    exploratory_data = df3
+                    df_lipinski = lipinski(exploratory_data.canonical_smiles)
+                    #st.write(df_lipinski)
+                    df_combined = pd.concat([exploratory_data,df_lipinski], axis=1)
+                    st.subheader("Birleştirilmiş Veri:")
+                    st.write(df_combined)
+                    st.markdown(download_button(df_combined, 'Birleştirilmiş_Veri.csv', 'CSV Dosyasını Bilgisayarına Yükle'), unsafe_allow_html=True)
+                    df_norm = norm_value(df_combined)
+                    #st.write(df_norm)
+                    df_final = pIC50(df_norm)
+                    st.subheader("IC50'nin pIC50'ye dönüştürülmüş halindeki veri seti:")
+                    st.write(df_final)
+                    st.markdown(download_button(df_final, 'pIC50_Verisi.csv', 'CSV Dosyasını Bilgisayarına Yükle'), unsafe_allow_html=True)
+                    df_class = df_final[df_final.bioactivity_class != "intermediate"]
+
+                    def mannwhitney(descriptor, verbose=False):
+
+                        # seed the random number generator
+                        seed(1)
+
+                        # actives and inactives
+                        selection = [descriptor, 'bioactivity_class']
+                        df = df_class[selection]
+                        active = df[df.bioactivity_class == 'active']
+                        active = active[descriptor]
+
+                        selection = [descriptor, 'bioactivity_class']
+                        df = df_class[selection]
+                        inactive = df[df.bioactivity_class == 'inactive']
+                        inactive = inactive[descriptor]
+
+                        # compare samples
+                        stat, p = mannwhitneyu(active, inactive)
+                        #print('Statistics=%.3f, p=%.3f' % (stat, p))
+
+                        # interpret
+                        alpha = 0.05
+                        if p > alpha:
+                            interpretation = 'Same distribution (fail to reject H0)'
+                        else:
+                            interpretation = 'Different distribution (reject H0)'
+                        
+                        results = pd.DataFrame({'Descriptor':descriptor,
+                                                'Statistics':stat,
+                                                'p':p,
+                                                'alpha':alpha,
+                                                'Interpretation':interpretation}, index=[0])
+                        filename = 'mannwhitneyu_' + descriptor + '.csv'
+                        results.to_csv(filename)
+
+                        return results
+
+                    st.text("")
+                    st.text("")
+                    session_state.grafik = st.checkbox("Aktif/İnaktif Molekül Grafiği")
+                    session_state.mw = st.checkbox("Moleküler Ağırlık/Çözünürlük Grafiği")
+                    session_state.pic50 = st.checkbox("pIC50/Moleküler Aktiflik Grafiği")
+                    session_state.logp = st.checkbox("Çözünürlük/Moleküler Aktiflik Grafiği")
+                    session_state.donors = st.checkbox("Hidrojen Bağı Vericiler/Moleküler Aktiflik Grafiği")
+                    session_state.acceptors = st.checkbox("Hidrojen Bağı Alıcılar/Moleküler Aktiflik Grafiği")
+
+                    if session_state.grafik:
+                        st.write("**********************************")
+                        st.text("")
+                        st.subheader("**Aktif/İnaktif Molekül Grafiği**")
+
+                        plt.figure(figsize=(5.5, 5.5))
+
+                        sns.countplot(x='bioactivity_class', data=df_class, edgecolor='black')
+
+                        plt.xlabel('Bioactivity class', fontsize=14, fontweight='bold')
+                        plt.ylabel('Frequency', fontsize=14, fontweight='bold')
+                        
+                        st.pyplot()
+                        #st.markdown(get_table_download_link(veri), unsafe_allow_html=True)
+                        
+                        #Buralara PDF indirici eklenecek
+
+                    if session_state.mw:
+                        st.write("**********************************")
+                        st.text("")
+                        st.subheader("**Moleküler Ağırlık/Çözünürlük Grafiği**")
+
+                        plt.figure(figsize=(5.5, 5.5))
+                        sns.scatterplot(x='MW', y='LogP', data=df_class, hue='bioactivity_class', size='pIC50', edgecolor='black', alpha=0.7)
+
+                        plt.xlabel('MW', fontsize=14, fontweight='bold')
+                        plt.ylabel('LogP', fontsize=14, fontweight='bold')
+                        plt.legend(bbox_to_anchor=(1.05, 1), loc=2, borderaxespad=0)
+                        st.pyplot()
+                        
+                        #Buralara PDF indirici eklenecek
+                        st.write("**Mann-Whitney U Test Verisi**:")
+                        st.write(mannwhitney("MW"))
+
+                    if session_state.pic50:
+                        st.write("**********************************")
+                        st.text("")
+                        st.subheader("**pIC50/Moleküler Aktiflik Grafiği**")
+
+                        plt.figure(figsize=(5.5, 5.5))
+
+                        sns.boxplot(x = 'bioactivity_class', y = 'pIC50', data = df_class)
+
+                        plt.xlabel('Bioactivity class', fontsize=14, fontweight='bold')
+                        plt.ylabel('pIC50 value', fontsize=14, fontweight='bold')
+                        st.pyplot()
+                        #Buralara PDF indirici eklenecek
+
+                        st.write("**Mann-Whitney U Test Verisi**:")
+                        st.write(mannwhitney("pIC50"))
+                    
+                    if session_state.logp:
+                        st.write("**********************************")
+                        st.text("")
+                        st.subheader("**Çözünürlük/Moleküler Aktiflik Grafiği**")
+
+                        plt.figure(figsize=(5.5, 5.5))
+
+                        sns.boxplot(x = 'bioactivity_class', y = 'LogP', data = df_class)
+
+                        plt.xlabel('Bioactivity class', fontsize=14, fontweight='bold')
+                        plt.ylabel('LogP', fontsize=14, fontweight='bold')
+                        st.pyplot()
+                        #Buralara PDF indirici eklenecek
+
+                        st.write("**Mann-Whitney U Test Verisi**:")
+                        st.write(mannwhitney("LogP"))
+                    
+                    if session_state.donors:
+                        st.write("**********************************")
+                        st.text("")
+                        st.subheader("**Hidrojen Bağı Vericiler/Moleküler Aktiflik Grafiği**")
+
+                        plt.figure(figsize=(5.5, 5.5))
+
+                        sns.boxplot(x = 'bioactivity_class', y = 'NumHDonors', data = df_class)
+
+                        plt.xlabel('Bioactivity class', fontsize=14, fontweight='bold')
+                        plt.ylabel('NumHDonors', fontsize=14, fontweight='bold')
+                        st.pyplot()
+                        #Buralara PDF indirici eklenecek
+
+                        st.write("**Mann-Whitney U Test Verisi**:")
+                        st.write(mannwhitney("NumHDonors"))
+
+                    if session_state.acceptors:
+                        st.write("**********************************")
+                        st.text("")
+                        st.subheader("**Hidrojen Bağı Alıcılar/Moleküler Aktiflik Grafiği**")
+
+                        plt.figure(figsize=(5.5, 5.5))
+
+                        sns.boxplot(x = 'bioactivity_class', y = 'NumHAcceptors', data = df_class)
+
+                        plt.xlabel('Bioactivity class', fontsize=14, fontweight='bold')
+                        plt.ylabel('NumHAcceptors', fontsize=14, fontweight='bold')
+                        st.pyplot()
+                        #Buralara PDF indirici eklenecek
+
+                        st.write("**Mann-Whitney U Test Verisi**:")
+                        st.write(mannwhitney("NumHAcceptors"))
+
 
                 
+            
+            
+
+    elif select_box == "Protein Çözünürlüğü":
+        pass
+
 
                     
 
-
-
-
-    elif select_box == "Hedef Protein Analizi":
-        pass
-    elif select_box == "Protein Çözünürlüğü":
-        pass
 
 
 if __name__ == "__main__":
