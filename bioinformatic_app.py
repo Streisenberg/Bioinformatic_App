@@ -20,9 +20,9 @@ from chembl_webresource_client.new_client import new_client
 import base64
 from SessionState import SessionState
 #Aşağıdaki libraryler herokuya yüklenmeden önce requirements dosyasına eklenecek
-from rdkit import Chem
-from rdkit.Chem import Descriptors, Lipinski
-import seaborn as sns
+#from rdkit import Chem
+#from rdkit.Chem import Descriptors, Lipinski
+#import seaborn as sns
 from numpy.random import seed
 from numpy.random import randn
 from scipy.stats import mannwhitneyu
