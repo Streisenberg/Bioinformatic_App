@@ -31,7 +31,7 @@ import pickle
 import uuid
 import re
 from functions import download_button
-import PyPDF2
+#import PyPDF2
 
 
 
