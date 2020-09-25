@@ -25,7 +25,7 @@ from SessionState import SessionState
 #import seaborn as sns
 from numpy.random import seed
 from numpy.random import randn
-from scipy.stats import mannwhitneyu
+#from scipy.stats import mannwhitneyu
 import json
 import pickle
 import uuid
