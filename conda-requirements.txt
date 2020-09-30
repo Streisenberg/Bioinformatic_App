@@ -1,0 +1,4 @@
+rdkit
+seaborn
+scipy
+neatbio
