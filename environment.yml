@@ -1,0 +1,24 @@
+name: bioinformatics-app
+dependencies:
+  - python = 3.6
+  # bind notebook version (compatibility to pgcontents)
+  - notebook = 4
+  - ipywidgets
+  - requests
+  # bind ipython version (compatibility to pgcontents)
+  - ipython = 5
+  # bind tornado version (websocket problems)
+  - tornado = 4.5
+  # get dependencies for pgcontents
+  - certifi
+  - click
+  - cryptography 
+  - mako
+  - psycopg2
+  - six
+  - sqlalchemy
+  - nose
+  - rdkit
+  - pip:
+    - pgcontents
+    - git+git://github.com/ipython-contrib/jupyter_contrib_nbextensions.git
