@@ -1,6 +1,0 @@
-conda
-miniconda
-rdkit
-seaborn
-scipy
-neatbio
