@@ -1,7 +1,7 @@
 # Bioinformatic_Website
  Turkish Bioinformatics App
 
-The deployed web app is live at https://bioinformatics-app.herokuapp.com/
+The deployed web app **_will_** live at https://bioinformatics-app.herokuapp.com/
 
 The web app was built in Python using the following librarie:
 - streamlit
